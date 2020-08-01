@@ -1,0 +1,9 @@
+main: me.wittybit.PlayerShop.Main
+name: PlayerShop
+version: "0.0.7a"
+author: AgathokakologicalBit
+api-version: "1.16"
+
+commands:
+  account:
+    description: Allows player to access the information about owned account

@@ -1,0 +1,9 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="PlayerShop:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/PlayerShop_jar</output-path>
+    <root id="archive" name="PlayerShop.jar">
+      <element id="module-output" name="PlayerShop" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../../servers/spigot-1.16.1/spigot.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>
