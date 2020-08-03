@@ -43,6 +43,7 @@ public class Main extends JavaPlugin implements Listener
   private AccountInfo serverAccount;
   private HashMap<String, AccountInfo> accounts;
   private HashMap<String, Pair<Inventory, Integer>> tradesBrowsingPageState;
+  private HashMap<String, Pair<Inventory, Integer>> ownedTradesBrowsingPageState;
 
   public static String convertItemStackToJsonRegular(ItemStack itemStack)
   {
@@ -121,6 +122,7 @@ public class Main extends JavaPlugin implements Listener
     this.transactionManager = new TransactionManager(this);
     this.tradeManager = new TradeManager(this);
     this.tradesBrowsingPageState = new HashMap<>();
+    this.ownedTradesBrowsingPageState = new HashMap<>();
 
     this.saveDefaultConfig();
     if (!this.getConfig().contains("starting_balance"))
@@ -172,6 +174,12 @@ public class Main extends JavaPlugin implements Listener
     this.getLogger().info("Player `" + e.getPlayer().getName() + "` has joined. Checking account info");
     Player player = e.getPlayer();
     createDefaultAccount(player);
+
+    int count = this.tradeManager.getPlayerPendingReceiveRequests(player).size();
+    if (count > 0)
+    {
+      player.sendMessage(org.bukkit.ChatColor.RED + "You have " + count + " completed trades awaiting receival");
+    }
   }
 
   public long parseCash(String data)
@@ -200,7 +208,73 @@ public class Main extends JavaPlugin implements Listener
   }
 
   @EventHandler
-  public void onClick(InventoryClickEvent event)
+  public void onOwnedTradeBrowsingInventoryClick(InventoryClickEvent event)
+  {
+    Pair<Inventory, Integer> p = this.ownedTradesBrowsingPageState.getOrDefault(event.getWhoClicked()
+                                                                                    .getUniqueId()
+                                                                                    .toString(), new Pair<>(null, 0));
+    if (!event.getInventory().equals(p.getFirst()))
+    {
+      return;
+    }
+
+    if (event.getCurrentItem() == null) return;
+    if (event.getCurrentItem().getItemMeta() == null) return;
+    if (event.getCurrentItem().getItemMeta().getDisplayName() == null) return;
+
+    event.setCancelled(true);
+    Player player = (Player) event.getWhoClicked();
+
+    int nextPage = p.getSecond();
+    if (event.getSlot() == 0 + 9 * 5) nextPage -= 1;
+    if (event.getSlot() == 8 + 9 * 5) nextPage += 1;
+
+    if (nextPage != p.getSecond())
+    {
+      this.getLogger().info("Trying to visit page " + Integer.toString(nextPage));
+
+      this.ownedTradesBrowsingPageState.put(player.getUniqueId().toString(), new Pair<>(p.getFirst(), nextPage));
+      drawTradeBrowsingInventory(player, p.getFirst(), nextPage);
+      return;
+    }
+
+    if (event.getSlot() / 9 == 4)
+    {
+      // Removes "id: " prefix from the 3rd line of Lore
+      int id = Integer.parseInt(event.getCurrentItem().getItemMeta().getLore().get(2).substring(4));
+      Optional<TradeRequest> request = this.tradeManager.getActivePlayerCreatedRequests(player).stream()
+          .filter(tr -> tr.hashCode() == id)
+          .findFirst();
+      if (!request.isPresent())
+      {
+        player.closeInventory();
+        player.sendMessage(org.bukkit.ChatColor.RED + "The request does no longer exist!");
+        return;
+      }
+
+      if (request.get().buyer != null)
+      {
+        player.closeInventory();
+        player.sendMessage(org.bukkit.ChatColor.RED + "Something went wrong! (It was already bought somehow OwO)");
+        return;
+      }
+
+      int slot = player.getInventory().firstEmpty();
+      if (slot < 0)
+      {
+        player.closeInventory();
+        player.sendMessage(org.bukkit.ChatColor.RED + "No empty slots to receive items!");
+        return;
+      }
+
+      player.getInventory().setItem(slot, request.get().offers);
+      this.tradeManager.removeTradeRequest(request.get());
+      this.drawOwnedTradeBrowsingInventory(player, p.getFirst(), p.getSecond());
+    }
+  }
+
+  @EventHandler
+  public void onTradeBrowsingInventoryClick(InventoryClickEvent event)
   {
     Pair<Inventory, Integer> p = this.tradesBrowsingPageState.getOrDefault(event.getWhoClicked()
                                                                                .getUniqueId()
@@ -276,8 +350,8 @@ public class Main extends JavaPlugin implements Listener
       removeItems(player.getInventory(), request.get().receives.getType(), request.get().receives.getAmount());
       player.getInventory().setItem(slot, request.get().offers);
       request.get().buyer = player.getUniqueId().toString();
-      tradeManager.completeTrade(request.get());
-      drawTradeBrowsingInventory(player, p.getFirst(), p.getSecond());
+      this.tradeManager.completeTrade(request.get());
+      this.drawTradeBrowsingInventory(player, p.getFirst(), p.getSecond());
     }
   }
 
@@ -343,6 +417,74 @@ public class Main extends JavaPlugin implements Listener
       nextPageMeta.setDisplayName(String.format("Next page %d/%d",
                                                 page + 2,
                                                 (tradeManager.pending_trade_requests.size() + 8) / 9));
+      nextPage.setItemMeta(nextPageMeta);
+      inv.setItem(8 + 9 * 5, nextPage);
+    }
+
+    player.openInventory(inv);
+  }
+
+  private void drawOwnedTradeBrowsingInventory(Player player, Inventory inv, int page)
+  {
+    inv.clear();
+    List<TradeRequest> requests = this.tradeManager.getActivePlayerCreatedRequests(player);
+
+    if (page * 9 >= requests.size())
+    {
+      page = (requests.size() - 1) / 9;
+    }
+
+    for (int col = 0; col < 9; ++col)
+    {
+      if (page * 9 + col >= requests.size()) break;
+
+      TradeRequest request = requests.get(page * 9 + col);
+
+      ItemStack ownerHead = new ItemStack(Material.PLAYER_HEAD);
+
+      AccountInfo info = this.accounts.get(request.creator);
+      if (null != info)
+      {
+        SkullMeta meta = (SkullMeta) ownerHead.getItemMeta();
+        meta.setOwner(info.ownerName);
+        ownerHead.setItemMeta(meta);
+      }
+
+      inv.setItem(col + 9 * 0, ownerHead);
+      inv.setItem(col + 9 * 2, new ItemStack(Material.CHAIN));
+      inv.setItem(col + 9 * 1, request.offers);
+      inv.setItem(col + 9 * 3, request.receives);
+
+      ItemStack removeTrade = new ItemStack(Material.BARRIER);
+      ItemMeta removeTradeMeta = removeTrade.getItemMeta();
+      removeTradeMeta.setDisplayName("Remove trade");
+      List<String> doTradeLore = new ArrayList<>();
+      doTradeLore.add("Will remove this request");
+      doTradeLore.add("from the list of active ones");
+      doTradeLore.add("id: " + Integer.toString(request.hashCode()));
+      removeTradeMeta.setLore(doTradeLore);
+      removeTrade.setItemMeta(removeTradeMeta);
+      inv.setItem(col + 9 * 4, removeTrade);
+    }
+
+    if (page > 0)
+    {
+      ItemStack prevPage = new ItemStack(Material.STONE_BUTTON);
+      ItemMeta prevPageMeta = prevPage.getItemMeta();
+      prevPageMeta.setDisplayName(String.format("Previous page %d/%d",
+                                                page,
+                                                (requests.size() + 8) / 9));
+      prevPage.setItemMeta(prevPageMeta);
+      inv.setItem(0 + 9 * 5, prevPage);
+    }
+
+    if (page + 2 <= (requests.size() + 8) / 9)
+    {
+      ItemStack nextPage = new ItemStack(Material.STONE_BUTTON);
+      ItemMeta nextPageMeta = nextPage.getItemMeta();
+      nextPageMeta.setDisplayName(String.format("Next page %d/%d",
+                                                page + 2,
+                                                (requests.size() + 8) / 9));
       nextPage.setItemMeta(nextPageMeta);
       inv.setItem(8 + 9 * 5, nextPage);
     }
@@ -537,7 +679,8 @@ public class Main extends JavaPlugin implements Listener
             new TradeRequest(player.getUniqueId().toString(),
                              held_item,
                              stack,
-                             null)
+                             null,
+                             false)
         ))
         {
           player.sendMessage(org.bukkit.ChatColor.RED + "Failed to create a trade request!");
@@ -552,7 +695,10 @@ public class Main extends JavaPlugin implements Listener
                                    ? stack.getItemMeta().getDisplayName()
                                    : stack.getType().getKey().toString();
 
-        TextComponent msg_name = new TextComponent("Created a trade: ");
+        TextComponent msg_player = new TextComponent(player.getName());
+        msg_player.setColor(ChatColor.AQUA);
+
+        TextComponent msg_name = new TextComponent(" created a trade request:\n");
         msg_name.setColor(ChatColor.GREEN);
 
         TextComponent msg_offer = new TextComponent(
@@ -576,7 +722,7 @@ public class Main extends JavaPlugin implements Listener
         };
         msg_request.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_ITEM, requestHoverEventComponents));
 
-        player.spigot().sendMessage(msg_name, msg_offer, msg_for, msg_request);
+        this.getServer().spigot().broadcast(msg_player, msg_name, msg_offer, msg_for, msg_request);
       }
 
       return true;
@@ -596,6 +742,60 @@ public class Main extends JavaPlugin implements Listener
 
       tradesBrowsingPageState.put(player.getUniqueId().toString(), new Pair<Inventory, Integer>(inv, 0));
       this.drawTradeBrowsingInventory(player, inv, 0);
+      return true;
+    }
+    else if ("mytrades".equalsIgnoreCase(label))
+    {
+      if (!(sender instanceof Player))
+      {
+        sender.sendMessage(org.bukkit.ChatColor.RED + "Available to players only");
+        return true;
+      }
+
+      Player player = (Player) sender;
+      Inventory inv = Bukkit.createInventory(null,
+                                             9 * 6,
+                                             org.bukkit.ChatColor.BLACK + "" + org.bukkit.ChatColor.BOLD + "Player's active Trades List");
+
+      ownedTradesBrowsingPageState.put(player.getUniqueId().toString(), new Pair<Inventory, Integer>(inv, 0));
+      this.drawOwnedTradeBrowsingInventory(player, inv, 0);
+      return true;
+    }
+    else if ("receiveall".equalsIgnoreCase(label))
+    {
+      if (!(sender instanceof Player))
+      {
+        sender.sendMessage(org.bukkit.ChatColor.RED + "Available to players only");
+        return true;
+      }
+
+      Player player = (Player) sender;
+      List<TradeRequest> requests = this.tradeManager.getPlayerPendingReceiveRequests(player);
+      int amountLeft = requests.size();
+      for (TradeRequest request : requests)
+      {
+        if (request.was_received)
+        {
+          player.sendMessage(org.bukkit.ChatColor.RED + "Something went wrong: the offerings were already received!");
+        }
+        else
+        {
+          int slot = player.getInventory().firstEmpty();
+          if (slot < 0)
+          {
+            player.sendMessage(org.bukkit.ChatColor.RED + "Failed to receive all offerings (reason: no space left). Amount left: " + amountLeft);
+          }
+
+          player.getInventory().setItem(slot, request.receives);
+          request.was_received = true;
+        }
+
+        this.tradeManager.archiveTrade(request);
+        amountLeft -= 1;
+      }
+
+      player.sendMessage(org.bukkit.ChatColor.GREEN + "Successfully received all offerings!");
+      return true;
     }
 
     return false;

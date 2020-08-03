@@ -1,6 +1,6 @@
 main: me.wittybit.PlayerShop.Main
 name: PlayerShop
-version: "0.2.18a"
+version: "0.2.19a"
 author: AgathokakologicalBit
 api-version: "1.16"
 
@@ -17,3 +17,5 @@ commands:
     description: Shows the list of available trade requests
   mytrades:
     description: Shows the list of active trade requests created by the command issuer
+  receiveall:
+    description: Attempts to receive given offers from player's completed trades
