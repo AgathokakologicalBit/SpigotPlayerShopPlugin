@@ -178,19 +178,20 @@ public class Main extends JavaPlugin implements Listener
   {
     try
     {
-      if (data.contains("."))
+      String[] parts = data.split("\\.");
+      if (parts.length > 2) return 0;
+
+      long amount = Long.parseLong(parts[0]) * 100;
+      if (parts.length == 2)
       {
-        String[] parts = data.split("\\.");
-        if (parts.length > 2) return 0;
-        long amount = Long.parseLong(parts[0]) * 100;
+        if (parts[1].length() > 2) return 0;
+
         long rest = Long.parseLong(parts[1]);
-        if (rest > 99) return 0;
-        if (rest < 10) rest *= 10;
+        if (parts[1].length() < 2) rest *= 10;
         amount += rest;
-        return amount;
       }
 
-      return Long.parseLong(data) * 100;
+      return amount;
     }
     catch (Exception e)
     {
@@ -284,7 +285,9 @@ public class Main extends JavaPlugin implements Listener
   {
     inv.clear();
     if (page * 9 >= tradeManager.pending_trade_requests.size())
+    {
       page = (tradeManager.pending_trade_requests.size() - 1) / 9;
+    }
 
     for (int col = 0; col < 9; ++col)
     {
@@ -293,10 +296,15 @@ public class Main extends JavaPlugin implements Listener
       TradeRequest request = tradeManager.pending_trade_requests.get(page * 9 + col);
 
       ItemStack ownerHead = new ItemStack(Material.PLAYER_HEAD);
-      SkullMeta meta = (SkullMeta) ownerHead.getItemMeta();
 
-      meta.setOwner(this.accounts.get(request.creator).ownerName);
-      ownerHead.setItemMeta(meta);
+      AccountInfo info = this.accounts.get(request.creator);
+      if (null != info)
+      {
+        SkullMeta meta = (SkullMeta) ownerHead.getItemMeta();
+        meta.setOwner(info.ownerName);
+        ownerHead.setItemMeta(meta);
+      }
+
       inv.setItem(col + 9 * 0, ownerHead);
       inv.setItem(col + 9 * 2, new ItemStack(Material.CHAIN));
       inv.setItem(col + 9 * 1, request.offers);
@@ -345,6 +353,11 @@ public class Main extends JavaPlugin implements Listener
   @Override
   public boolean onCommand(CommandSender sender, Command command, String label, String[] args)
   {
+    if ((sender instanceof Player))
+    {
+      this.createDefaultAccount((Player) sender);
+    }
+
     if ("account".equalsIgnoreCase(label))
     {
       if (args.length > 0)

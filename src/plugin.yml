@@ -1,6 +1,6 @@
 main: me.wittybit.PlayerShop.Main
 name: PlayerShop
-version: "0.2.17a"
+version: "0.2.18a"
 author: AgathokakologicalBit
 api-version: "1.16"
 
@@ -14,4 +14,6 @@ commands:
   tradeit:
     description: Creates a new trade request with offer being a currently held item
   trades:
-    description: shows the list of available trade requests
+    description: Shows the list of available trade requests
+  mytrades:
+    description: Shows the list of active trade requests created by the command issuer
